@@ -90,25 +90,21 @@ func (r *StudioPlaylistsRoot) Readdir(ctx context.Context) (fs.DirStream, syscal
 	}
     total := response.PageInfo.TotalResults
     entries := make([]fuse.DirEntry, 0, total)
-    for {
-        for _, playlist := range response.Items {
-            // log.Printf("playlist: %+v", playlist)
-            name := playlist.Snippet.Title
-            if playlist.Status.PrivacyStatus != "public" {
-                name = "." + name
-            }
-            entries = append(entries, fuse.DirEntry{
-                Name: name,
-                Mode: fuse.S_IFDIR,
-            })
+    call = call.MaxResults(total)
+    response, err = call.Do()
+    if err != nil {
+        log.Print("Unable to get list of playlists: %+v", err)
+        return nil, syscall.EAGAIN
+    }
+    for _, playlist := range response.Items {
+        name := playlist.Snippet.Title
+        if playlist.Status.PrivacyStatus != "public" {
+            name = "." + name
         }
-        if response.NextPageToken == "" { break }
-        call = call.PageToken(response.NextPageToken)
-        response, err = call.Do()
-        if err != nil {
-            log.Print("Unable to get list of playlists: %+v", err)
-            return nil, syscall.EAGAIN
-        }
+        entries = append(entries, fuse.DirEntry{
+            Name: name,
+            Mode: fuse.S_IFDIR,
+        })
     }
 	return fs.NewListDirStream(entries), 0
 }
