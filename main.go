@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -14,11 +16,31 @@ import (
 	"google.golang.org/api/youtube/v3"
 )
 
+func Unimplemented() {
+	callers := make([]uintptr, 1)
+	runtime.Callers(2, callers)
+	frames := runtime.CallersFrames(callers)
+	frame, _ := frames.Next()
+	fmt.Printf("%s:%d: Unimplemented %s", frame.File, frame.Line, frame.Function)
+}
+
 type Root struct{ fs.Inode }
-type StudioRoot struct{ fs.Inode }
-type StudioVideosRoot struct{ fs.Inode }
-type StudioPlaylistsRoot struct{ fs.Inode }
-type StudioAnalyticsRoot struct{ fs.Inode }
+type StudioRoot struct {
+	fs.Inode
+	*youtube.Service
+}
+type StudioVideosRoot struct {
+	fs.Inode
+	*youtube.Service
+}
+type StudioPlaylistsRoot struct {
+	fs.Inode
+	*youtube.Service
+}
+type StudioAnalyticsRoot struct {
+	fs.Inode
+	*youtube.Service
+}
 
 type key int
 
@@ -29,9 +51,8 @@ func (r *Root) OnAdd(ctx context.Context) {
 	if err != nil {
 		log.Panic("Could not get YouTube service")
 	}
-    log.Print("Got YouTube service connection")
-	youtube_ctx := context.WithValue(ctx, youtubeKey, service)
-	studio := r.NewPersistentInode(youtube_ctx, &StudioRoot{}, fs.StableAttr{Mode: fuse.S_IFDIR})
+	log.Print("Got YouTube service connection")
+	studio := r.NewPersistentInode(ctx, &StudioRoot{Service: service}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	r.AddChild("studio", studio, false)
 }
 
@@ -41,9 +62,9 @@ func (r *Root) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut)
 }
 
 func (r *StudioRoot) OnAdd(ctx context.Context) {
-	playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{}, fs.StableAttr{Mode: fuse.S_IFDIR})
-	videos := r.NewPersistentInode(ctx, &StudioVideosRoot{}, fs.StableAttr{Mode: fuse.S_IFDIR})
-	analytics := r.NewPersistentInode(ctx, &StudioAnalyticsRoot{}, fs.StableAttr{Mode: fuse.S_IFDIR})
+    playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
+    videos := r.NewPersistentInode(ctx, &StudioVideosRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
+    analytics := r.NewPersistentInode(ctx, &StudioAnalyticsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	r.AddChild("playlists", playlists, false)
 	r.AddChild("videos", videos, false)
 	r.AddChild("analytics", analytics, false)
@@ -54,13 +75,46 @@ func (r *StudioRoot) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.At
 	return 0
 }
 
-func (r *StudioPlaylistsRoot) OnAdd(ctx context.Context) {
-	service, ok := ctx.Value(youtubeKey).(*youtube.Service)
-	if !ok {
-		log.Panic("Couldn't find context value")
-	}
-	log.Printf("context value %+v", service)
+func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	Unimplemented()
+	return nil, syscall.ENOSYS
 }
+
+func (r *StudioPlaylistsRoot) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
+	log.Printf("service %+v", r.Service)
+	Unimplemented()
+	return nil, syscall.ENOSYS
+}
+
+func (r *StudioVideosRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	Unimplemented()
+	return nil, syscall.ENOSYS
+}
+
+func (r *StudioVideosRoot) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
+	Unimplemented()
+	return nil, syscall.ENOSYS
+}
+
+func (r *StudioAnalyticsRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	Unimplemented()
+	return nil, syscall.ENOSYS
+}
+
+func (r *StudioAnalyticsRoot) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
+	Unimplemented()
+	return nil, syscall.ENOSYS
+}
+
+var _ = (fs.NodeOnAdder)((*Root)(nil))
+var _ = (fs.NodeOnAdder)((*StudioRoot)(nil))
+
+var _ = (fs.NodeLookuper)((*StudioVideosRoot)(nil))
+var _ = (fs.NodeReaddirer)((*StudioVideosRoot)(nil))
+var _ = (fs.NodeLookuper)((*StudioPlaylistsRoot)(nil))
+var _ = (fs.NodeReaddirer)((*StudioPlaylistsRoot)(nil))
+var _ = (fs.NodeLookuper)((*StudioAnalyticsRoot)(nil))
+var _ = (fs.NodeReaddirer)((*StudioAnalyticsRoot)(nil))
 
 func main() {
 	debug := flag.Bool("debug", false, "print debug data")
