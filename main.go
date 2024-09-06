@@ -81,9 +81,36 @@ func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse
 }
 
 func (r *StudioPlaylistsRoot) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
-	log.Printf("service %+v", r.Service)
-	Unimplemented()
-	return nil, syscall.ENOSYS
+	call := r.Service.Playlists.List([]string{"snippet", "status"})
+	call = call.Mine(true)
+	response, err := call.Do()
+	if err != nil {
+		log.Print("Unable to get list of playlists: %+v", err)
+		return nil, syscall.EAGAIN
+	}
+    total := response.PageInfo.TotalResults
+    entries := make([]fuse.DirEntry, 0, total)
+    for {
+        for _, playlist := range response.Items {
+            // log.Printf("playlist: %+v", playlist)
+            name := playlist.Snippet.Title
+            if playlist.Status.PrivacyStatus != "public" {
+                name = "." + name
+            }
+            entries = append(entries, fuse.DirEntry{
+                Name: name,
+                Mode: fuse.S_IFDIR,
+            })
+        }
+        if response.NextPageToken == "" { break }
+        call = call.PageToken(response.NextPageToken)
+        response, err = call.Do()
+        if err != nil {
+            log.Print("Unable to get list of playlists: %+v", err)
+            return nil, syscall.EAGAIN
+        }
+    }
+	return fs.NewListDirStream(entries), 0
 }
 
 func (r *StudioVideosRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
