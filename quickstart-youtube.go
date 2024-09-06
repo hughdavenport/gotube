@@ -134,9 +134,7 @@ func playlistsListByChannel(service *youtube.Service, part []string, forChannel 
 }
 
 
-func main() {
-  ctx := context.Background()
-
+func YoutubeService(ctx context.Context) (*youtube.Service, error) {
   b, err := ioutil.ReadFile("client_secret.json")
   if err != nil {
     log.Fatalf("Unable to read client secret file: %v", err)
@@ -150,6 +148,14 @@ func main() {
   }
   client := getClient(ctx, config)
   service, err := youtube.New(client)
+
+  return service, err
+}
+
+func youtube_main() {
+  ctx := context.Background()
+
+  service, err := YoutubeService(ctx)
 
   handleError(err, "Error creating YouTube client")
 

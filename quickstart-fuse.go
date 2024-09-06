@@ -39,7 +39,7 @@ func (r *HelloRoot) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.Att
 var _ = (fs.NodeGetattrer)((*HelloRoot)(nil))
 var _ = (fs.NodeOnAdder)((*HelloRoot)(nil))
 
-func main() {
+func fuse_main() {
 	debug := flag.Bool("debug", false, "print debug data")
 	flag.Parse()
 	if len(flag.Args()) < 1 {

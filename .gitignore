@@ -1,2 +1,5 @@
 # Don't share secret material
 client_secret.json
+
+# Compiled binary
+gotube
