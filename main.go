@@ -62,9 +62,9 @@ func (r *Root) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut)
 }
 
 func (r *StudioRoot) OnAdd(ctx context.Context) {
-    playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
-    videos := r.NewPersistentInode(ctx, &StudioVideosRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
-    analytics := r.NewPersistentInode(ctx, &StudioAnalyticsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
+	playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
+	videos := r.NewPersistentInode(ctx, &StudioVideosRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
+	analytics := r.NewPersistentInode(ctx, &StudioAnalyticsRoot{Service: r.Service}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	r.AddChild("playlists", playlists, false)
 	r.AddChild("videos", videos, false)
 	r.AddChild("analytics", analytics, false)
