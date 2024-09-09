@@ -133,9 +133,11 @@ func (r *StudioRoot) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.At
 }
 
 func (r *StudioPlaylistsRoot) refreshCache() syscall.Errno {
+    log.Print("Refreshing Playlist cache")
 	r.cache.Clear()
 	r.cacheFilling = true
 	time.AfterFunc(TIMEOUT, func() {
+        log.Print("Clearing Playlist cache")
 		r.cache.Clear()
 		r.cacheFilling = false
 		r.cacheLen = 0
@@ -192,6 +194,7 @@ func (r *StudioPlaylistsRoot) getPlaylist(name string) (*youtube.Playlist, sysca
 }
 
 func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+    log.Printf("Playlists Lookup %s", name)
 	playlist, err := r.getPlaylist(name)
 	if err != 0 {
 		return nil, syscall.ENOENT
@@ -296,6 +299,7 @@ func (r *StudioPlaylistNode) Getattr(ctx context.Context, fh fs.FileHandle, out 
 	mtime := published_at
 	ctime := published_at
 	out.SetTimes(&atime, &mtime, &ctime)
+	out.SetTimeout(TIMEOUT)
 	log.Printf("getattr on %s", r.Playlist.Snippet.Title)
 	return 0
 }
