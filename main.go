@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+    "maps"
+    "iter"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -29,25 +31,50 @@ func Unimplemented() {
 	fmt.Printf("%s:%d: Unimplemented %s\n", frame.File, frame.Line, frame.Function)
 }
 
-type Cache struct {
-	store sync.Map
+type Cache[K comparable, V any] struct {
+	store map[K]V
+    lock sync.RWMutex
 }
 
-func (c *Cache) Clear() {
-	c.store.Clear()
+func NewCache[K comparable, V any]() (Cache[K, V]) {
+    return Cache[K, V]{
+        store: make(map[K]V),
+    }
 }
-func (c *Cache) Store(key any, value any) {
-	c.store.Store(key, value)
+
+func (c *Cache[_, _]) Clear() {
+	clear(c.store)
+}
+func (c *Cache[K, V]) Store(key K, value V) {
+	c.store[key] = value
 	// log.Printf("CACHE %s = %s", key, value)
 }
-func (c *Cache) Load(key any) (any, bool) {
-	value, ok := c.store.Load(key)
+func (c *Cache[K, V]) Load(key K) (V, bool) {
+	value, ok := c.store[key]
 	if ok {
 		// log.Printf("HIT %s = %s", key, value)
 	} else {
 		log.Printf("MISS %s", key)
 	}
 	return value, ok
+}
+func (c *Cache[_, _]) Len() (int) {
+    return len(c.store)
+}
+func (c *Cache[K, _]) Entries() (iter.Seq[K]) {
+    return maps.Keys(c.store)
+}
+func (c *Cache[_, _]) RLock() {
+    c.lock.RLock()
+}
+func (c *Cache[_, _]) RUnlock() {
+    c.lock.RUnlock()
+}
+func (c *Cache[_, _]) Lock() {
+    c.lock.Lock()
+}
+func (c *Cache[_, _]) Unlock() {
+    c.lock.Unlock()
 }
 
 type GotubeOptions struct {
@@ -69,10 +96,7 @@ type StudioVideosRoot struct {
 type StudioPlaylistsRoot struct {
 	fs.Inode
 	Options      GotubeOptions
-	entries      []string
-	cache        Cache
-	cacheFilling bool
-	cacheLen     int64
+	cache        Cache[string, *youtube.Playlist]
 }
 type StudioAnalyticsRoot struct {
 	fs.Inode
@@ -118,7 +142,7 @@ func (r *Root) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut)
 }
 
 func (r *StudioRoot) OnAdd(ctx context.Context) {
-	playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{Options: r.Options}, fs.StableAttr{Mode: fuse.S_IFDIR})
+    playlists := r.NewPersistentInode(ctx, &StudioPlaylistsRoot{Options: r.Options, cache: NewCache[string, *youtube.Playlist]()}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	videos := r.NewPersistentInode(ctx, &StudioVideosRoot{Options: r.Options}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	analytics := r.NewPersistentInode(ctx, &StudioAnalyticsRoot{Options: r.Options}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	r.AddChild("playlists", playlists, false)
@@ -134,13 +158,18 @@ func (r *StudioRoot) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.At
 
 func (r *StudioPlaylistsRoot) refreshCache() syscall.Errno {
     log.Print("Refreshing Playlist cache")
+    r.cache.Lock()
+    defer log.Print("Refreshed")
+    defer r.cache.Unlock()
+    log.Print("locked")
 	r.cache.Clear()
-	r.cacheFilling = true
+    log.Print("cleared")
 	time.AfterFunc(TIMEOUT, func() {
         log.Print("Clearing Playlist cache")
+        r.cache.Lock()
+        defer log.Print("Cleared")
+        defer r.cache.Unlock()
 		r.cache.Clear()
-		r.cacheFilling = false
-		r.cacheLen = 0
 	})
 	call := r.Options.YoutubeService.Playlists.List([]string{"snippet", "status"})
 	call = call.Mine(true)
@@ -150,7 +179,6 @@ func (r *StudioPlaylistsRoot) refreshCache() syscall.Errno {
 		return syscall.EAGAIN
 	}
 	total := response.PageInfo.TotalResults
-	r.entries = make([]string, 0, r.cacheLen)
 	call = call.MaxResults(total)
 	response, err = call.Do()
 	if err != nil {
@@ -163,38 +191,30 @@ func (r *StudioPlaylistsRoot) refreshCache() syscall.Errno {
 			title = "." + title
 		}
 		title = strings.ReplaceAll(title, "/", "_")
-		r.entries = append(r.entries, title)
 		r.cache.Store(title, playlist)
 	}
-	r.cacheFilling = false
-	// FIXME do some locking and notifying
-	r.cacheLen = total
 	return 0
 }
 
 func (r *StudioPlaylistsRoot) getPlaylist(name string) (*youtube.Playlist, syscall.Errno) {
-	// FIXME do some locking and notifying
-	for r.cacheFilling {
-	}
+    if r.cache.Len() == 0 {
+        go r.refreshCache()
+    }
+    r.cache.RLock()
+    defer r.cache.RUnlock()
 	playlist, ok := r.cache.Load(name)
-	if ok {
-		playlist, ok = playlist.(*youtube.Playlist)
-	}
-	if !ok {
-		r.refreshCache()
-	}
-	playlist, ok = r.cache.Load(name)
-	if ok {
-		playlist, ok = playlist.(*youtube.Playlist)
-	}
 	if !ok {
 		return nil, syscall.ENOENT
 	}
-	return playlist.(*youtube.Playlist), 0
+	return playlist, 0
 }
 
 func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-    log.Printf("Playlists Lookup %s", name)
+    if strings.HasPrefix(name, ".") {
+        log.Printf("Playlists Lookup [PRIVATE]")
+    } else {
+        log.Printf("Playlists Lookup %s", name)
+    }
 	playlist, err := r.getPlaylist(name)
 	if err != 0 {
 		return nil, syscall.ENOENT
@@ -221,14 +241,13 @@ func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse
 }
 
 func (r *StudioPlaylistsRoot) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
-	if r.cacheLen == 0 {
+	if r.cache.Len() == 0 {
 		r.refreshCache()
 	}
-	// FIXME do some locking and notifying
-	for r.cacheFilling {
-	}
-	entries := make([]fuse.DirEntry, 0, r.cacheLen)
-	for _, title := range r.entries {
+    r.cache.RLock()
+    defer r.cache.RUnlock()
+	entries := make([]fuse.DirEntry, 0, r.cache.Len())
+	for title := range r.cache.Entries() {
 		entries = append(entries, fuse.DirEntry{
 			Name: title,
 			Mode: fuse.S_IFDIR,
