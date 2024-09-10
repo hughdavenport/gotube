@@ -104,8 +104,11 @@ type StudioAnalyticsRoot struct {
 }
 type StudioPlaylistNode struct {
 	fs.Inode
-	Playlist *youtube.Playlist
-	Options  GotubeOptions
+	id      string
+	time    time.Time
+	title   string
+	Options GotubeOptions
+	cache   Cache[string, *youtube.PlaylistItem]
 }
 
 var _ = (fs.NodeOnAdder)((*Root)(nil))
@@ -235,7 +238,7 @@ func (r *StudioPlaylistsRoot) Lookup(ctx context.Context, name string, out *fuse
 	mtime := published_at
 	ctime := published_at
 	out.SetTimes(&atime, &mtime, &ctime)
-	return r.NewInode(ctx, &StudioPlaylistNode{Options: r.Options, Playlist: playlist}, fs.StableAttr{
+	return r.NewInode(ctx, &StudioPlaylistNode{Options: r.Options, id: playlist.Id, time: published_at, title: name, cache: NewCache[string, *youtube.PlaylistItem]()}, fs.StableAttr{
 		Mode: fuse.S_IFDIR,
 	}), 0
 }
@@ -294,32 +297,77 @@ func (r *StudioAnalyticsRoot) Getattr(ctx context.Context, fh fs.FileHandle, out
 	return 0
 }
 
+func (r *StudioPlaylistNode) refreshCache() syscall.Errno {
+	log.Printf("Refreshing Playlist cache for %s", r.title)
+	r.cache.Lock()
+	defer log.Print("Refreshed")
+	defer r.cache.Unlock()
+	log.Print("locked")
+	r.cache.Clear()
+	log.Print("cleared")
+	time.AfterFunc(TIMEOUT, func() {
+		log.Printf("Clearing Playlist cache for %s", r.title)
+		r.cache.Lock()
+		defer log.Print("Cleared")
+		defer r.cache.Unlock()
+		r.cache.Clear()
+	})
+	call := r.Options.YoutubeService.PlaylistItems.List([]string{"snippet", "status"})
+	call = call.PlaylistId(r.id)
+	response, err := call.Do()
+	if err != nil {
+		log.Print("Unable to get list of playlist %s: %+v", r.title, err)
+		return syscall.EAGAIN
+	}
+	total := response.PageInfo.TotalResults
+	call = call.MaxResults(total)
+	response, err = call.Do()
+	if err != nil {
+		log.Print("Unable to get list of playlist %s: %+v", r.title, err)
+		return syscall.EAGAIN
+	}
+	for _, item := range response.Items {
+		title := item.Snippet.Title
+		if item.Status.PrivacyStatus != "public" {
+			title = "." + title
+		}
+		title = strings.ReplaceAll(title, "/", "_")
+		r.cache.Store(title, item)
+	}
+	return 0
+}
+
 func (r *StudioPlaylistNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	Unimplemented()
 	return nil, syscall.ENOSYS
 }
 
 func (r *StudioPlaylistNode) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
-	Unimplemented()
-	return nil, syscall.ENOSYS
+	if r.cache.Len() == 0 {
+		r.refreshCache()
+	}
+	r.cache.RLock()
+	defer r.cache.RUnlock()
+	entries := make([]fuse.DirEntry, 0, r.cache.Len())
+	for title := range r.cache.Entries() {
+		entries = append(entries, fuse.DirEntry{
+			Name: title,
+			Mode: fuse.S_IFLNK,
+		})
+	}
+	return fs.NewListDirStream(entries), 0
 }
 
 func (r *StudioPlaylistNode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = 0755
 	now := time.Now()
 
-	published_at, parse_err := time.Parse(time.RFC3339, r.Playlist.Snippet.PublishedAt)
-	if parse_err != nil {
-		log.Printf("time = %s, err = %s", r.Playlist.Snippet.PublishedAt, parse_err)
-		published_at = time.UnixMilli(0)
-	}
-
 	atime := now
-	mtime := published_at
-	ctime := published_at
+	mtime := r.time
+	ctime := r.time
 	out.SetTimes(&atime, &mtime, &ctime)
 	out.SetTimeout(TIMEOUT)
-	log.Printf("getattr on %s", r.Playlist.Snippet.Title)
+	log.Printf("getattr on %s", r.title)
 	return 0
 }
 
