@@ -3,7 +3,7 @@
 [![patreon](https://img.shields.io/badge/patreon-FF5441?style=for-the-badge&logo=Patreon)](https://www.patreon.com/hughdavenport)
 [![youtube](https://img.shields.io/badge/youtube-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/watch?v=m3hxBVeAEps&list=PL5r5Q39GjMDcMWBBLTH7dPvJBTY-yBA77)
 
-This repo is a hobby project implementing [FUSE](https://en.wikipedia.org/wiki/Filesystem_in_Userspace) filesystem wrapper around the [YouTube Data API](https://developers.google.com/youtube/v3).
+This repo is a hobby project implementing [FUSE](https://en.wikipedia.org/wiki/Filesystem_in_Userspace) filesystem wrapper around the [YouTube Data API](https://developers.google.com/youtube/v3). It was developed in a [YouTube series](https://www.youtube.com/watch?v=m3hxBVeAEps&list=PL5r5Q39GjMDcMWBBLTH7dPvJBTY-yBA77)
 
 Please leave any comments about what you liked. Feel free to suggest any features or improvements.
 
